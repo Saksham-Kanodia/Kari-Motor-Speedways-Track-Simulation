@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-dark: #0a0d12;
+  --panel-dark: #121720;
+  --card-dark: #161c26;
+  --border-dark: #273142;
+  --cyan: #00e5ff;
+  --gold: #ffd600;
+  --green: #00e676;
+  --red: #ff1744;
+  --orange: #ff9100;
+  --purple: #d500f9;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-dark);
+  color: #f0f6fc;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #58a6ff;
+}
+
+.hud-card {
+  background: linear-gradient(135deg, #131924 0%, #171f2d 100%);
+  border: 1px solid var(--border-dark);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s;
+}
+
+.hud-card:hover {
+  border-color: #3b4b63;
+}
+
+.slider-custom {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #273142;
+  outline: none;
+}
+
+.slider-custom::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cyan);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid transparent;
+}
+
+.tab-btn:hover {
+  color: #f0f6fc;
+  background: #1a2230;
+}
+
+.tab-btn.active {
+  background: #1c2738;
+  color: var(--cyan);
+  border-color: #2e3e56;
+}
+
