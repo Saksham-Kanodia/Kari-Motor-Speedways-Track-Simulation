@@ -1,0 +1,21 @@
+{
+    "lap_time_s": 73.92672379900002,
+    "sector_1_s": 23.81274346845653,
+    "sector_2_s": 28.952042619240594,
+    "sector_3_s": 21.16193771130289,
+    "max_speed_kmh": 129.18165976639213,
+    "min_speed_kmh": 51.361616388934195,
+    "avg_speed_kmh": 103.13996898782005,
+    "max_long_accel_mps2": 2.3111760624934234,
+    "max_braking_decel_mps2": 11.467082273943106,
+    "max_lat_accel_mps2": 11.052094550000001,
+    "max_lat_accel_g": 1.1270000000000002,
+    "energy_consumed_kwh": 0.22413919436186958,
+    "energy_regenerated_kwh": 0.015999968382928643,
+    "solar_energy_harvested_kwh": 0.01492191430482786,
+    "net_energy_kwh": 0.20813922597894094,
+    "efficiency_wh_km": 98.27158922518458,
+    "initial_soc_pct": 90.0,
+    "final_soc_pct": 85.55269699808449,
+    "soc_delta_pct": -4.447303001915515
+}

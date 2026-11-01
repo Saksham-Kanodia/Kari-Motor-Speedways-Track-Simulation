@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HELIOS — Physics-Based Solar EV Digital Twin Presentation</title>
+<style>
+    :root {
+        --bg-color: #0d1117;
+        --card-bg: #161b22;
+        --border-color: #30363d;
+        --text-main: #f0f6fc;
+        --text-muted: #8b949e;
+        --cyan: #00e5ff;
+        --gold: #ffd600;
+        --green: #00e676;
+        --red: #ff1744;
+        --orange: #ff9100;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        overflow-x: hidden;
+    }
+    .deck-container {
+        width: 95%;
+        max-width: 1050px;
+        height: 680px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        position: relative;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .slide-header {
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(13, 17, 23, 0.6);
+    }
+    .slide-brand {
+        font-size: 0.85rem;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        color: var(--cyan);
+        text-transform: uppercase;
+    }
+    .slide-number {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        font-family: monospace;
+    }
+    .slide-body {
+        padding: 32px 40px;
+        flex: 1;
+        overflow-y: auto;
+    }
+    .slide-title {
+        font-size: 1.85rem;
+        font-weight: 800;
+        color: #ffffff;
+        margin-bottom: 6px;
+    }
+    .slide-subtitle {
+        font-size: 0.95rem;
+        color: var(--text-muted);
+        margin-bottom: 24px;
+        font-weight: 500;
+    }
+    .slide-footer {
+        padding: 14px 28px;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(13, 17, 23, 0.4);
+    }
+    .nav-btn {
+        background: #21262d;
+        border: 1px solid var(--border-color);
+        color: var(--text-main);
+        padding: 8px 18px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+    }
+    .nav-btn:hover {
+        background: #30363d;
+        border-color: var(--cyan);
+        color: var(--cyan);
+    }
+    .nav-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+    .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        background: rgba(0, 229, 255, 0.15);
+        color: var(--cyan);
+        border: 1px solid var(--cyan);
+        margin-right: 6px;
+    }
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    .grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+    }
+    .card {
+        background: #0d1117;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+    }
+    .card-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: var(--cyan);
+        margin-bottom: 10px;
+    }
+    .stat-val {
+        font-size: 1.8rem;
+        font-weight: 800;
+        font-family: monospace;
+        color: #ffffff;
+    }
+    .stat-lbl {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        letter-spacing: 0.05em;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        margin-top: 8px;
+    }
+    th, td {
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        text-align: left;
+    }
+    th {
+        background: #161b22;
+        color: var(--cyan);
+        font-weight: 600;
+    }
+    ul {
+        margin-left: 20px;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: #e6edf3;
+    }
+    li { margin-bottom: 6px; }
+    .highlight { color: var(--gold); font-weight: 600; }
+    .slide { display: none; }
+    .slide.active { display: block; }
+</style>
+</head>
+<body>
+
+<div class="deck-container">
+    <div class="slide-header">
+        <div class="slide-brand">⚡ HELIOS DIGITAL TWIN // TECHNICAL PRESENTATION</div>
+        <div class="slide-number" id="slideNum">Slide 1 of 9</div>
+    </div>
+
+    <div class="slide-body">
+
+        <!-- SLIDE 1 -->
+        <div class="slide active" id="s1">
+            <div style="margin-top: 40px; text-align: center;">
+                <span class="badge">AUTOMOTIVE DIGITAL TWIN</span>
+                <span class="badge">PHYSICS SIMULATION</span>
+                <h1 style="font-size: 2.8rem; font-weight: 800; margin: 20px 0 10px 0; letter-spacing: 0.02em;">HELIOS</h1>
+                <p style="font-size: 1.25rem; color: var(--cyan); font-weight: 600; margin-bottom: 25px;">
+                    Physics-Based Solar EV Digital Twin & Kari Motor Speedway Simulator
+                </p>
+                <p style="font-size: 0.95rem; color: var(--text-muted); max-width: 650px; margin: 0 auto 35px auto; line-height: 1.6;">
+                    An end-to-end mathematical digital twin integrating longitudinal vehicle dynamics, PMSM electric powertrain limits, lithium electrochemistry, solar photovoltaic irradiance harvesting, and a two-pass lap velocity solver.
+                </p>
+                <div class="grid-3" style="max-width: 750px; margin: 0 auto;">
+                    <div class="card">
+                        <div class="stat-lbl">Track Venue</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: #fff; margin-top: 4px;">Kari Speedway</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">Coimbatore, India (2.12 km)</div>
+                    </div>
+                    <div class="card">
+                        <div class="stat-lbl">Lap Simulation</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: var(--green); margin-top: 4px;">Two-Pass Profiler</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">Acceleration & Braking</div>
+                    </div>
+                    <div class="card">
+                        <div class="stat-lbl">Telemetry Cockpit</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: var(--gold); margin-top: 4px;">Streamlit + Plotly</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">Live Interactive HUD</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 2 -->
+        <div class="slide" id="s2">
+            <div class="slide-title">Problem Statement & Objectives</div>
+            <div class="slide-subtitle">Bridging first-principles physical equations with interactive telemetry</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">🚨 Engineering Problem</div>
+                    <ul>
+                        <li>Simulating Solar EV performance on closed circuits requires accounting for competing physical limits: aerodynamic resistance, motor torque-power envelopes, tyre adhesion boundaries, and tight battery energy reserves.</li>
+                        <li>Conventional dashboards frequently rely on synthetic or random metrics rather than genuine physics-integrated states.</li>
+                        <li>High efficiency solar vehicles require precise energy audits (consumption, regenerative braking recovery, and solar PV irradiance gains).</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">🎯 Deliverable Objectives</div>
+                    <ul>
+                        <li><span class="highlight">Modular Physics Engine:</span> Complete Newton-Euler longitudinal dynamics, PMSM motor limits, lithium battery equivalent circuit.</li>
+                        <li><span class="highlight">Kari Motor Speedway Track:</span> Parametric spline model with continuous curvature calculation and sector partitioning.</li>
+                        <li><span class="highlight">Lap Velocity Solver:</span> Forward acceleration and backward braking passes for a complete, feasible lap.</li>
+                        <li><span class="highlight">Telemetry Cockpit:</span> Interactive dark-theme dashboard with animated vehicle positioning and telemetry export.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 3 -->
+        <div class="slide" id="s3">
+            <div class="slide-title">Vehicle Specifications & Engineering Parameters</div>
+            <div class="slide-subtitle">Centralized configuration with clearly documented provisional assumptions</div>
+            <table>
+                <thead>
+                    <tr><th>Subsystem</th><th>Parameter</th><th>Value</th><th>Unit</th><th>Engineering Assumption / Rationale</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>Chassis</strong></td><td>Total Mass ($m$)</td><td>320.0</td><td>kg</td><td>Curb mass (245 kg) + driver (75 kg)</td></tr>
+                    <tr><td><strong>Aerodynamics</strong></td><td>Drag Coefficient ($C_d$)</td><td>0.20</td><td>-</td><td>Streamlined single-seater solar car profile</td></tr>
+                    <tr><td><strong>Aerodynamics</strong></td><td>Frontal Area ($A$)</td><td>1.15</td><td>m²</td><td>Low frontal profile cross-section</td></tr>
+                    <tr><td><strong>Tyres</strong></td><td>Rolling Resistance ($C_{rr}$)</td><td>0.007</td><td>-</td><td>Low-rolling resistance solar racing tyres (e.g. 95/80-16)</td></tr>
+                    <tr><td><strong>Tyres</strong></td><td>Friction Coefficient ($\mu$)</td><td>1.15</td><td>-</td><td>Dry asphalt grip limit at Kari Motor Speedway</td></tr>
+                    <tr><td><strong>Powertrain</strong></td><td>Peak Motor Power</td><td>12.0</td><td>kW</td><td>PMSM electric traction motor limit</td></tr>
+                    <tr><td><strong>Powertrain</strong></td><td>Peak Motor Torque</td><td>75.0</td><td>Nm</td><td>Shaft torque ceiling up to base speed (1,528 RPM)</td></tr>
+                    <tr><td><strong>Powertrain</strong></td><td>Max Motor RPM</td><td>5,500</td><td>RPM</td><td>Rotational cut-off limit ($G=4.2$, $r_w=0.28\text{ m}$)</td></tr>
+                    <tr><td><strong>Battery</strong></td><td>Nominal Architecture</td><td>96.0 / 50.0</td><td>V / Ah</td><td>26S Lithium Pack (~4.8 kWh total stored energy)</td></tr>
+                    <tr><td><strong>Solar PV</strong></td><td>Area / Efficiency</td><td>4.0 / 22%</td><td>m² / %</td><td>Monocrystalline cells with MPPT DC-DC tracking</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SLIDE 4 -->
+        <div class="slide" id="s4">
+            <div class="slide-title">Mathematical & Physics Modelling</div>
+            <div class="slide-subtitle">First-principles formulations implemented across the digital twin modules</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Chassis & Powertrain Dynamics</div>
+                    <ul>
+                        <li><strong>Equation of Motion:</strong><br>$m \cdot a_x = F_{\text{drive}} - F_{\text{drag}} - F_{\text{rolling}} - F_{\text{braking}}$</li>
+                        <li><strong>Aerodynamic Resistance:</strong><br>$F_{\text{drag}} = \frac{1}{2} \rho C_d A v^2 \quad (\rho = 1.225\text{ kg/m}^3)$</li>
+                        <li><strong>Rolling Resistance:</strong><br>$F_{\text{rolling}} = C_{rr} m g \cos(\theta)$</li>
+                        <li><strong>Motor Regimes:</strong><br>$T = T_{\text{max}}$ for $\omega \le \omega_{\text{base}}$;<br>$T = P_{\text{max}} / \omega$ for $\omega > \omega_{\text{base}}$</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">Battery, Solar & Tyre Limits</div>
+                    <ul>
+                        <li><strong>Battery Equivalent Circuit:</strong><br>$V_{\text{term}} = V_{\text{ocv}}(SOC) - I \cdot R_{\text{int}}$</li>
+                        <li><strong>SOC Integration:</strong><br>$dSOC = - \frac{I \cdot dt}{Q_{\text{cap}} \cdot 3600} \times 100\%$</li>
+                        <li><strong>Solar PV Harvest:</strong><br>$P_{\text{solar}} = A_{pv} \eta_{pv} \eta_{\text{mppt}} G_{\text{solar}} \approx 725.5\text{ W}$</li>
+                        <li><strong>Friction Circle Grip Constraint:</strong><br>$(a_x / \mu g)^2 + (a_y / \mu g)^2 \le 1.0$</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 5 -->
+        <div class="slide" id="s5">
+            <div class="slide-title">Kari Motor Speedway Track Modelling</div>
+            <div class="slide-subtitle">Parametric spline geometry of the Coimbatore racing circuit</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Circuit Geometry Specifications</div>
+                    <ul>
+                        <li><strong>Length:</strong> 2,120 meters (calibrated perimeter).</li>
+                        <li><strong>Turns:</strong> 14 corners, driven anti-clockwise.</li>
+                        <li><strong>Discretization:</strong> Uniform arc length $\Delta s = 2.0\text{ m}$ (1,060 discrete simulation nodes).</li>
+                        <li><strong>Analytical Curvature:</strong><br>$\kappa(s) = \frac{x' y'' - y' x''}{(x'^2 + y'^2)^{3/2}}$</li>
+                        <li><strong>Cornering Velocity Ceiling:</strong><br>$v_{\text{corner}}(s) = \sqrt{\frac{\mu g \cdot 0.98}{|\kappa(s)|}}$</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">Sector Partitioning</div>
+                    <ul>
+                        <li><span class="badge" style="border-color: var(--cyan); color: var(--cyan);">Sector 1 (0 to 678m)</span><br>Start/Finish straight (500m), T1 & T2 fast sweeper, T3 entry.</li>
+                        <li><span class="badge" style="border-color: var(--gold); color: var(--gold);">Sector 2 (678 to 1441m)</span><br>T5 Hairpin ($R \approx 22\text{ m}$ apex, slowest corner), T6-T7 chicane, infield complex.</li>
+                        <li><span class="badge" style="border-color: var(--green); color: var(--green);">Sector 3 (1441 to 2120m)</span><br>Back sweeper kinks, T13-T14 parabolic curve back to main straight.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 6 -->
+        <div class="slide" id="s6">
+            <div class="slide-title">Lap Simulation & Kinematic Results</div>
+            <div class="slide-subtitle">Performance output of the two-pass acceleration-braking solver</div>
+            <div class="grid-3" style="margin-bottom: 20px;">
+                <div class="card">
+                    <div class="stat-lbl">Lap Completion Time</div>
+                    <div class="stat-val" style="color: var(--cyan);">73.93 s</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">1m 13.93s flying lap</div>
+                </div>
+                <div class="card">
+                    <div class="stat-lbl">Top Velocity</div>
+                    <div class="stat-val" style="color: var(--green);">129.2 km/h</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">End of main straight</div>
+                </div>
+                <div class="card">
+                    <div class="stat-lbl">Average Speed</div>
+                    <div class="stat-val" style="color: var(--gold);">103.1 km/h</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">Over full 2.12 km lap</div>
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Sector Split Times</div>
+                    <ul>
+                        <li><strong>Sector 1:</strong> 23.81 seconds</li>
+                        <li><strong>Sector 2:</strong> 28.95 seconds (technical hairpin section)</li>
+                        <li><strong>Sector 3:</strong> 21.16 seconds</li>
+                        <li><strong>Minimum Apex Speed:</strong> 51.4 km/h (T5 Hairpin)</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">Dynamic G-Force Envelope</div>
+                    <ul>
+                        <li><strong>Peak Forward Accel:</strong> $+2.31\text{ m/s}^2$ ($+0.24\text{ g}$)</li>
+                        <li><strong>Peak Braking Decel:</strong> $-11.47\text{ m/s}^2$ ($-1.17\text{ g}$)</li>
+                        <li><strong>Peak Lateral Cornering:</strong> $11.05\text{ m/s}^2$ ($1.13\text{ g}$)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 7 -->
+        <div class="slide" id="s7">
+            <div class="slide-title">Interactive Telemetry Dashboard</div>
+            <div class="slide-subtitle">Automotive engineering cockpit built with Streamlit and Plotly</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Live Telemetry HUD & Animation</div>
+                    <ul>
+                        <li><strong>High-Contrast HUD Cards:</strong> Real-time display of Speed (km/h), Motor RPM, Power (kW), Battery SOC (%), Pack Current (A), Voltage (V), and G-Forces.</li>
+                        <li><strong>Top-Down Track Visualizer:</strong> Car position cursor animated along Kari Motor Speedway with selectable heatmaps (Speed, Power, Lat G, Sector).</li>
+                        <li><strong>Simulation Playback Engine:</strong> Play/Pause animation, 0.5x–10x playback speed, and interactive lap scrubber slider.</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">Multi-Channel Engineering Traces</div>
+                    <ul>
+                        <li><strong>Powertrain:</strong> Motor RPM and power traces with field-weakening transition.</li>
+                        <li><strong>Battery:</strong> SOC evolution and voltage sag under high discharge.</li>
+                        <li><strong>Dynamics:</strong> G-G friction circle scatter and acceleration traces.</li>
+                        <li><strong>Energy:</strong> Cumulative consumption vs solar gain vs regenerative recovery.</li>
+                        <li><strong>Data Export:</strong> Instant one-click CSV download of all telemetry.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 8 -->
+        <div class="slide" id="s8">
+            <div class="slide-title">Results, Validation & Limitations</div>
+            <div class="slide-subtitle">Energy audit, automated test coverage, and transparent engineering boundaries</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">⚡ Energy Audit (1 Flying Lap)</div>
+                    <ul>
+                        <li><strong>Gross Energy Consumed:</strong> $0.224\text{ kWh}$</li>
+                        <li><strong>Regenerative Braking Harvest:</strong> $0.016\text{ kWh}$ (~7.1% energy recovered)</li>
+                        <li><strong>Solar PV Harvest:</strong> $0.015\text{ kWh}$ ($725.5\text{ W}$ continuous gain)</li>
+                        <li><strong>Net Energy Consumed:</strong> <span class="highlight">0.208 kWh</span></li>
+                        <li><strong>Specific Energy Efficiency:</strong> <span class="highlight">98.3 Wh/km</span></li>
+                        <li><strong>Battery State of Charge:</strong> 90.00% $\to$ 85.55% ($\Delta = -4.45\%$)</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">✅ Unit Tests & Physical Constraints</div>
+                    <ul>
+                        <li><strong>13/13 Automated Tests Passed:</strong>
+                            <br>• Aerodynamic drag scales strictly with $v^2$ ($R^2 = 1.0$)
+                            <br>• Motor torque and power capped at 75 Nm and 12 kW
+                            <br>• SOC decrements on discharge, increments on regen
+                            <br>• Terminal voltage sags proportionally to $I \cdot R_{\text{int}}$
+                            <br>• Cornering speed decreases with increasing curvature
+                        </li>
+                        <li><strong>Documented Limitations:</strong> Planar elevation, quasi-steady state load transfer, constant battery temperature ($30^\circ\text{C}$).</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLIDE 9 -->
+        <div class="slide" id="s9">
+            <div class="slide-title">Conclusion & Future Roadmap</div>
+            <div class="slide-subtitle">Complete deliverable summary and next steps for physical hardware deployment</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">🏁 Completed Deliverables</div>
+                    <ul>
+                        <li><strong>Working Application:</strong> `streamlit run app.py` launching full interactive cockpit.</li>
+                        <li><strong>Modular Source Code:</strong> Centralized `config.py`, `physics_engine/`, `simulation/`, and `visualization/`.</li>
+                        <li><strong>Simulation Telemetry Data:</strong> Full CSV dataset in `results/sample_lap_telemetry.csv` and JSON summary.</li>
+                        <li><strong>Documentation:</strong> Complete equations, architecture, and guides in `README.md`.</li>
+                        <li><strong>Presentation Deck:</strong> 9-slide technical presentation.</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-title">🚀 Future Engineering Scope</div>
+                    <ul>
+                        <li><strong>3D RTK DGPS Track Ingestion:</strong> Ingest surveyed camber and elevation profiles for Kari Motor Speedway.</li>
+                        <li><strong>Thermal Dynamics:</strong> Couple battery and PMSM stator thermal models to evaluate multi-lap thermal derating.</li>
+                        <li><strong>Hardware-in-the-Loop (HIL):</strong> Stream live physical CAN bus telemetry from solar car sensors into the HELIOS dashboard.</li>
+                        <li><strong>Optimal Energy Strategy:</strong> Solve non-linear MPC optimal control for minimum lap time given battery thermal and SOC limits.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="slide-footer">
+        <button class="nav-btn" id="prevBtn" onclick="changeSlide(-1)">← Previous</button>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Use Arrow Keys or Buttons to Navigate</span>
+        <button class="nav-btn" id="nextBtn" onclick="changeSlide(1)">Next →</button>
+    </div>
+</div>
+
+<script>
+    let currentSlide = 1;
+    const totalSlides = 9;
+
+    function updateSlide() {
+        for (let i = 1; i <= totalSlides; i++) {
+            const el = document.getElementById('s' + i);
+            if (el) el.classList.remove('active');
+        }
+        const activeEl = document.getElementById('s' + currentSlide);
+        if (activeEl) activeEl.classList.add('active');
+
+        document.getElementById('slideNum').innerText = `Slide ${currentSlide} of ${totalSlides}`;
+        document.getElementById('prevBtn').disabled = (currentSlide === 1);
+        document.getElementById('nextBtn').disabled = (currentSlide === totalSlides);
+    }
+
+    function changeSlide(direction) {
+        currentSlide += direction;
+        if (currentSlide < 1) currentSlide = 1;
+        if (currentSlide > totalSlides) currentSlide = totalSlides;
+        updateSlide();
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'ArrowLeft') changeSlide(-1);
+        if (event.key === 'ArrowRight' || event.key === ' ') changeSlide(1);
+    });
+
+    updateSlide();
+</script>
+
+</body>
+</html>
+
