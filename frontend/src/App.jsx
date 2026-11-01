@@ -1,666 +1,379 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Zap, Play, Pause, RotateCcw, FastForward, Sliders, Download,
-  Activity, Gauge, Battery, Sun, Flag, ChevronRight, RefreshCw, Layers
-} from 'lucide-react'
+  Activity, BatteryCharging, Bolt, CarFront, ChevronDown, CircleHelp,
+  Download, Gauge, Pause, Play, RotateCcw, Settings2, Sun, Timer,
+  Waves, Zap, SlidersHorizontal, Cpu, Radio, ChartNoAxesCombined
+} from 'lucide-react';
+import { DEFAULTS, parseTrackCsv, simulateLap } from './simulation';
+import './index.css';
 
-// Dark Plotly template layout helper
-const PLOT_THEME = {
-  paper_bgcolor: '#121720',
-  plot_bgcolor: '#0a0d12',
-  font: { family: 'Inter, sans-serif', color: '#f0f6fc', size: 10 },
-  margin: { l: 45, r: 25, t: 35, b: 35 },
-  xaxis: { gridcolor: '#222b3a', zerolinecolor: '#222b3a', color: '#8b949e' },
-  yaxis: { gridcolor: '#222b3a', zerolinecolor: '#222b3a', color: '#8b949e' }
+const PRESETS = {
+  baseline: { label: 'Baseline', patch: {} },
+  sprint: { label: 'Sprint setup', patch: { vehicle_mass: 285, motor_peak_power_kw: 15, motor_peak_torque_nm: 82, friction_coefficient: 1.28, drag_coefficient: 0.19 } },
+  endurance: { label: 'Endurance', patch: { vehicle_mass: 310, motor_peak_power_kw: 9, motor_peak_torque_nm: 65, friction_coefficient: 1.05, solar_irradiance_wm2: 950, initial_soc_pct: 98 } },
+  wet: { label: 'Low-grip / wet', patch: { friction_coefficient: 0.72, drag_coefficient: 0.22, rolling_resistance_coeff: 0.009 } }
+};
+
+const PARAMS = [
+  { key: 'vehicle_mass', label: 'Vehicle + driver mass', unit: 'kg', min: 180, max: 600, step: 5 },
+  { key: 'drag_coefficient', label: 'Drag coefficient (Cd)', unit: '', min: 0.10, max: 0.50, step: 0.01 },
+  { key: 'frontal_area', label: 'Frontal area', unit: 'm²', min: 0.7, max: 2.5, step: 0.05 },
+  { key: 'rolling_resistance_coeff', label: 'Rolling resistance (Crr)', unit: '', min: 0.002, max: 0.03, step: 0.001 },
+  { key: 'friction_coefficient', label: 'Tyre grip (μ)', unit: '', min: 0.6, max: 1.6, step: 0.01 },
+  { key: 'motor_peak_power_kw', label: 'Peak motor power', unit: 'kW', min: 4, max: 35, step: 0.5 },
+  { key: 'motor_peak_torque_nm', label: 'Peak motor torque', unit: 'Nm', min: 20, max: 180, step: 1 },
+  { key: 'gear_ratio', label: 'Final drive ratio', unit: ':1', min: 2, max: 9, step: 0.1 },
+  { key: 'battery_nominal_voltage', label: 'Battery nominal voltage', unit: 'V', min: 48, max: 150, step: 1 },
+  { key: 'battery_capacity_ah', label: 'Battery capacity', unit: 'Ah', min: 15, max: 120, step: 1 },
+  { key: 'initial_soc_pct', label: 'Starting state of charge', unit: '%', min: 10, max: 100, step: 1 },
+  { key: 'regen_efficiency_pct', label: 'Regen efficiency', unit: '%', min: 20, max: 95, step: 1 },
+  { key: 'solar_irradiance_wm2', label: 'Solar irradiance', unit: 'W/m²', min: 0, max: 1200, step: 10 },
+  { key: 'solar_array_area_m2', label: 'Solar array area', unit: 'm²', min: 1, max: 7, step: 0.1 }
+];
+
+const fmt = (n, digits = 1) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : '—';
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+function pathFrom(data, width, height, pad = 8) {
+  if (!data?.length) return '';
+  const vals = data.map(Number).filter(Number.isFinite);
+  if (!vals.length) return '';
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = hi - lo || 1;
+  const stride = Math.max(1, Math.floor(vals.length / 500));
+  return vals.filter((_, i) => i % stride === 0 || i === vals.length - 1)
+    .map((v, i, arr) => {
+      const originalIndex = Math.min(i * stride, vals.length - 1);
+      const x = pad + originalIndex / Math.max(1, vals.length - 1) * (width - 2 * pad);
+      const y = height - pad - (v - lo) / span * (height - 2 * pad);
+      return `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+}
+
+function MiniChart({ title, data, color = '#70e1d0', unit = '', cursor = 0, fill = false, label }) {
+  const W = 640, H = 170, pad = 12;
+  const values = data || [];
+  const finite = values.filter(Number.isFinite);
+  const min = finite.length ? Math.min(...finite) : 0;
+  const max = finite.length ? Math.max(...finite) : 1;
+  const span = max - min || 1;
+  const path = pathFrom(values, W, H, pad);
+  const cx = pad + cursor * (W - 2 * pad);
+  const y = (v) => H - pad - (v - min) / span * (H - 2 * pad);
+  const selected = finite[Math.min(finite.length - 1, Math.round(cursor * Math.max(0, finite.length - 1)))] ?? 0;
+  return <section className="chart-card">
+    <div className="chart-head">
+      <div><div className="eyebrow">{title}</div><div className="chart-value">{fmt(selected, 2)} <small>{unit}</small></div></div>
+      {label && <span className="chart-tag">{label}</span>}
+    </div>
+    <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
+      {[0, .25, .5, .75, 1].map(v => <line key={v} x1={pad} x2={W-pad} y1={pad+v*(H-2*pad)} y2={pad+v*(H-2*pad)} stroke="#26323e" strokeDasharray="3 7" />)}
+      {fill && path && <path d={`${path} L${W-pad},${H-pad} L${pad},${H-pad} Z`} fill={color} opacity=".09" />}
+      {path && <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+      <line x1={cx} x2={cx} y1={pad} y2={H-pad} stroke="#f5bc66" strokeDasharray="4 5" strokeWidth="1.5" />
+      <circle cx={cx} cy={y(selected)} r="4.5" fill="#f5bc66" stroke="#111923" strokeWidth="2" />
+    </svg>
+    <div className="chart-foot"><span>START / S-F</span><span>END OF LAP</span></div>
+  </section>;
+}
+
+function TrackView({ track, telemetry, index, colorMetric, onMetric }) {
+  const [hover, setHover] = useState(null);
+  const coords = track.length ? track : [];
+  const bounds = useMemo(() => {
+    if (!coords.length) return { minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    const xs = coords.map(p => p.x_m), ys = coords.map(p => p.y_m);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  }, [coords]);
+  const project = (p) => {
+    const w = 760, h = 420, inset = 42;
+    const sx = (w - 2 * inset) / Math.max(1, bounds.maxX - bounds.minX);
+    const sy = (h - 2 * inset) / Math.max(1, bounds.maxY - bounds.minY);
+    const scale = Math.min(sx, sy);
+    const usedW = (bounds.maxX - bounds.minX) * scale;
+    const usedH = (bounds.maxY - bounds.minY) * scale;
+    return {
+      x: (w - usedW) / 2 + (p.x_m - bounds.minX) * scale,
+      y: h - ((h - usedH) / 2 + (p.y_m - bounds.minY) * scale)
+    };
+  };
+  const points = coords.map(project);
+  const line = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const carPoint = telemetry ? project({ x_m: telemetry.x_m[index], y_m: telemetry.y_m[index] }) : points[0];
+  const selectedSpeed = telemetry?.speed_kmh?.[index] ?? 0;
+  const metrics = telemetry ? telemetry[colorMetric] : [];
+  const metricMin = metrics?.length ? Math.min(...metrics) : 0;
+  const metricMax = metrics?.length ? Math.max(...metrics) : 1;
+  const colorFor = (v) => {
+    const t = clamp((v - metricMin) / (metricMax - metricMin || 1), 0, 1);
+    return colorMetric === 'speed_kmh' ? `hsl(${195 - t*145} 78% ${46 + t*8}%)` : `hsl(${155 - t*115} 72% 55%)`;
+  };
+  const markers = [0.12, 0.32, 0.52, 0.72, 0.9].map((v, j) => {
+    const p = points[Math.round(v * (points.length - 1))];
+    return p ? { ...p, n: j + 1 } : null;
+  }).filter(Boolean);
+  return <section className="panel track-panel">
+    <div className="panel-heading">
+      <div><div className="eyebrow">CIRCUIT MAP / TELEMETRY TRACE</div><h2>Kari Motor Speedway</h2></div>
+      <div className="track-tools">
+        <select value={colorMetric} onChange={e => onMetric(e.target.value)} aria-label="Track color metric">
+          <option value="speed_kmh">Speed</option><option value="motor_elec_power_kw">Motor power</option><option value="accel_y_g">Lateral G</option><option value="battery_soc_pct">Battery SOC</option>
+        </select>
+        <span className="live-pill"><i /> SIM VIEW</span>
+      </div>
+    </div>
+    <div className="track-stage">
+      <div className="track-grid" />
+      <svg viewBox="0 0 760 420" className="track-svg" role="img" aria-label="Top-down view of Kari Motor Speedway simulated circuit">
+        <defs><filter id="carGlow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+        {line && <><polyline points={line} fill="none" stroke="#080c11" strokeWidth="42" strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={line} fill="none" stroke="#526170" strokeWidth="31" strokeLinejoin="round" strokeLinecap="round" opacity=".62" />
+          <polyline points={line} fill="none" stroke="#131f29" strokeWidth="26" strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={line} fill="none" stroke="#7f909c" strokeWidth="1.2" strokeDasharray="10 12" opacity=".55" />
+          {points.filter((p,i)=>i%5===0).map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="1.5" fill="#9aabb5" opacity=".5" />)}
+          {markers.map((p)=><g key={p.n}><circle cx={p.x} cy={p.y} r="12" fill="#111b23" stroke="#9aabb5" strokeOpacity=".35"/><text x={p.x} y={p.y+4} textAnchor="middle" fontSize="10" fill="#d9e5e9">{p.n}</text></g>)}
+          {points.length > 0 && <g><circle cx={points[0].x} cy={points[0].y} r="8" fill="#f5bc66" stroke="#fff" strokeWidth="2"/><text x={points[0].x+14} y={points[0].y-13} fontSize="10" fill="#f5bc66" letterSpacing="1">START / FINISH</text></g>}
+          {telemetry && metrics.map((v,i)=>{if(i%3!==0)return null; const p=points[i];return p?<circle key={i} cx={p.x} cy={p.y} r="2.7" fill={colorFor(v)} />:null;})}
+          {carPoint && <g filter="url(#carGlow)" transform={`translate(${carPoint.x} ${carPoint.y})`}><circle r="14" fill="#70e1d0" opacity=".18"/><circle r="7" fill="#70e1d0" stroke="#effffb" strokeWidth="2"/><path d="M-2 1 L9 0 L-2 -3 Z" fill="#0b2021"/></g>}
+        </>}
+      </svg>
+      <div className="map-legend"><span><i className="legend-cyan" /> HELIOS position</span><span><i className="legend-gold" /> Start / finish</span></div>
+      {hover && <div className="map-hover">{hover}</div>}
+    </div>
+    <div className="track-bottom">
+      <div><span className="eyebrow">TRACK DISTANCE</span><strong>{fmt(telemetry?.distance_m?.[index] ?? 0, 0)} <small>/ 2,120 m</small></strong></div>
+      <div className="sector-track"><span className={telemetry?.sector?.[index]===1?'active':''}>S1</span><span className={telemetry?.sector?.[index]===2?'active':''}>S2</span><span className={telemetry?.sector?.[index]===3?'active':''}>S3</span></div>
+      <div><span className="eyebrow">CURRENT SPEED</span><strong>{fmt(selectedSpeed,1)} <small>km/h</small></strong></div>
+    </div>
+  </section>;
+}
+
+function Stat({ label, value, unit, icon: Icon, tone = 'mint', detail }) {
+  return <div className="stat-card">
+    <div className={`stat-icon ${tone}`}><Icon size={16} /></div>
+    <div className="stat-meta"><span>{label}</span><strong>{value} <small>{unit}</small></strong>{detail && <em>{detail}</em>}</div>
+  </div>;
 }
 
 export default function App() {
-  const [telemetry, setTelemetry] = useState(null)
-  const [summary, setSummary] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [simTime, setSimTime] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [playbackSpeed, setPlaybackSpeed] = useState(2.0)
-  const [colorMetric, setColorMetric] = useState('speed_kmh')
-  const [activeTab, setActiveTab] = useState('pwr')
-  const [showConfig, setShowConfig] = useState(false)
-  const [apiConnected, setApiConnected] = useState(false)
-  const [recomputing, setRecomputing] = useState(false)
+  const [params, setParams] = useState(DEFAULTS);
+  const [track, setTrack] = useState([]);
+  const [telemetry, setTelemetry] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [simTime, setSimTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speedFactor, setSpeedFactor] = useState(1);
+  const [colorMetric, setColorMetric] = useState('speed_kmh');
+  const [activeTab, setActiveTab] = useState('power');
+  const [showSetup, setShowSetup] = useState(false);
+  const [preset, setPreset] = useState('baseline');
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  const [apiMode, setApiMode] = useState('browser');
+  const raf = useRef(null);
+  const previousFrame = useRef(0);
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-  // Config parameters
-  const [params, setParams] = useState({
-    vehicle_mass: 320.0,
-    drag_coefficient: 0.20,
-    frontal_area: 1.15,
-    rolling_resistance_coeff: 0.007,
-    friction_coefficient: 1.15,
-    motor_peak_power_kw: 12.0,
-    motor_peak_torque_nm: 75.0,
-    gear_ratio: 4.2,
-    battery_nominal_voltage: 96.0,
-    battery_capacity_ah: 50.0,
-    initial_soc_pct: 90.0,
-    regen_efficiency_pct: 70.0,
-    solar_irradiance_wm2: 850.0,
-    solar_array_area_m2: 4.0
-  })
-
-  const trackDivRef = useRef(null)
-  const speedDivRef = useRef(null)
-  const powerDivRef = useRef(null)
-  const tabPlot1Ref = useRef(null)
-  const tabPlot2Ref = useRef(null)
-
-  // Fetch initial baseline lap telemetry
-  useEffect(() => {
-    async function loadInitialData() {
-      try {
-        const res = await fetch('/api/default-lap')
-        if (res.ok) {
-          const data = await res.json()
-          setTelemetry(data.telemetry)
-          setSummary(data.summary)
-          setApiConnected(true)
-        } else {
-          throw new Error('API returned non-200')
-        }
-      } catch (err) {
-        console.warn('FastAPI backend not reachable, using fallback baseline:', err)
-        setApiConnected(false)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadInitialData()
-  }, [])
-
-  // Animation playback loop
-  useEffect(() => {
-    let animId
-    let lastStamp = performance.now()
-
-    function step(now) {
-      if (isPlaying && telemetry) {
-        const delta = (now - lastStamp) / 1000.0
-        const maxTime = telemetry.time_s[telemetry.time_s.length - 1]
-        setSimTime(prev => {
-          const next = prev + delta * playbackSpeed
-          if (next >= maxTime) {
-            setIsPlaying(false)
-            return maxTime
-          }
-          return next
-        })
-      }
-      lastStamp = now
-      if (isPlaying) {
-        animId = requestAnimationFrame(step)
-      }
-    }
-
-    if (isPlaying) {
-      animId = requestAnimationFrame(step)
-    }
-    return () => cancelAnimationFrame(animId)
-  }, [isPlaying, telemetry, playbackSpeed])
-
-  // Current interpolated index & snapshot
-  const currentIndex = telemetry ? Math.min(
-    telemetry.time_s.findIndex(t => t >= simTime) === -1 ? telemetry.time_s.length - 1 : telemetry.time_s.findIndex(t => t >= simTime),
-    telemetry.time_s.length - 1
-  ) : 0
-
-  const snap = telemetry ? {
-    speed_kmh: telemetry.speed_kmh[currentIndex],
-    motor_rpm: telemetry.motor_rpm[currentIndex],
-    motor_elec_power_kw: telemetry.motor_elec_power_kw[currentIndex],
-    battery_soc_pct: telemetry.battery_soc_pct[currentIndex],
-    battery_current_a: telemetry.battery_current_a[currentIndex],
-    battery_voltage_v: telemetry.battery_voltage_v[currentIndex],
-    battery_power_kw: telemetry.battery_power_kw[currentIndex],
-    accel_x_g: telemetry.accel_x_g[currentIndex],
-    accel_y_g: telemetry.accel_y_g[currentIndex],
-    solar_power_w: telemetry.solar_power_w[currentIndex],
-    regen_power_kw: telemetry.regen_power_kw[currentIndex],
-    net_energy_kwh: telemetry.net_energy_kwh[currentIndex],
-    distance_m: telemetry.distance_m[currentIndex],
-    x_m: telemetry.x_m[currentIndex],
-    y_m: telemetry.y_m[currentIndex],
-    sector: telemetry.sector[currentIndex]
-  } : {}
-
-  const maxLapTime = telemetry ? telemetry.time_s[telemetry.time_s.length - 1] : 74.0
-
-  // Re-run simulation via FastAPI
-  async function handleRecompute() {
-    setRecomputing(true)
+  const loadSimulation = useCallback(async (nextParams, nextTrack) => {
+    setBusy(true);
+    setError('');
     try {
-      const res = await fetch('/api/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setTelemetry(data.telemetry)
-        setSummary(data.summary)
-        setSimTime(0)
-        setIsPlaying(false)
-        setApiConnected(true)
+      let result = null;
+      if (apiBase) {
+        try {
+          const res = await fetch(`${apiBase}/api/simulate`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(nextParams)
+          });
+          if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+          result = await res.json();
+          setApiMode('backend');
+        } catch (e) {
+          setApiMode('browser');
+          setError(`Backend unavailable; using the in-browser physics engine. (${e.message})`);
+        }
       }
+      if (!result) {
+        result = simulateLap(nextParams, nextTrack);
+        setApiMode('browser');
+      }
+      setTelemetry(result.telemetry);
+      setSummary(result.summary);
+      setSimTime(0);
+      setPlaying(false);
     } catch (e) {
-      alert('Error connecting to simulation API: ' + e.message)
+      setError(e.message || 'Simulation could not be completed.');
     } finally {
-      setRecomputing(false)
+      setBusy(false);
     }
-  }
+  }, [apiBase]);
 
-  // Render or update Plotly Track Map
   useEffect(() => {
-    if (!window.Plotly || !telemetry || !trackDivRef.current) return
+    let cancelled = false;
+    fetch('/track_data.csv').then(r => {
+      if (!r.ok) throw new Error('Could not load track geometry');
+      return r.text();
+    }).then(csv => {
+      if (cancelled) return;
+      const parsed = parseTrackCsv(csv);
+      if (parsed.length < 20) throw new Error('Track geometry did not contain enough points');
+      setTrack(parsed);
+      loadSimulation(DEFAULTS, parsed);
+    }).catch(e => {
+      if (!cancelled) { setError(e.message); setBusy(false); }
+    });
+    return () => { cancelled = true; };
+  }, [loadSimulation]);
 
-    const colorArr = telemetry[colorMetric] || telemetry.speed_kmh
-    const traceOutline = {
-      x: telemetry.x_m,
-      y: telemetry.y_m,
-      mode: 'lines',
-      line: { color: '#1c2432', width: 10 },
-      hoverinfo: 'skip',
-      showlegend: false
-    }
-
-    const traceCenterline = {
-      x: telemetry.x_m,
-      y: telemetry.y_m,
-      mode: 'markers',
-      marker: {
-        size: 5,
-        color: colorArr,
-        colorscale: colorMetric === 'sector' ? 'Viridis' : 'Plasma',
-        colorbar: {
-          title: { text: colorMetric, font: { color: '#f0f6fc', size: 9 } },
-          tickfont: { color: '#8b949e', size: 8 },
-          len: 0.7,
-          thickness: 10,
-          x: 1.02
-        }
-      },
-      name: 'Centerline'
-    }
-
-    const traceStartFinish = {
-      x: [telemetry.x_m[0]],
-      y: [telemetry.y_m[0]],
-      mode: 'markers+text',
-      marker: { size: 10, color: '#ffd600', symbol: 'diamond' },
-      text: ['S/F'],
-      textposition: 'bottom center',
-      textfont: { color: '#ffd600', size: 9 },
-      name: 'Start/Finish'
-    }
-
-    const traceCar = {
-      x: [snap.x_m],
-      y: [snap.y_m],
-      mode: 'markers',
-      marker: {
-        size: 16,
-        color: '#00e5ff',
-        line: { color: '#ffffff', width: 2 },
-        symbol: 'circle'
-      },
-      name: 'HELIOS'
-    }
-
-    const layout = {
-      ...PLOT_THEME,
-      title: { text: '<b>KARI MOTOR SPEEDWAY // TOP-DOWN TRACK</b>', font: { size: 12, color: '#f0f6fc' } },
-      height: 420,
-      showlegend: false,
-      yaxis: { scaleanchor: 'x', scaleratio: 1, ...PLOT_THEME.yaxis }
-    }
-
-    window.Plotly.react(trackDivRef.current, [traceOutline, traceCenterline, traceStartFinish, traceCar], layout, { responsive: true, displayModeBar: false })
-  }, [telemetry, colorMetric, snap.x_m, snap.y_m])
-
-  // Render Speed & Power traces
+  const maxTime = telemetry?.time_s?.[telemetry.time_s.length - 1] || 0;
   useEffect(() => {
-    if (!window.Plotly || !telemetry) return
+    if (!playing || !telemetry) return;
+    const tick = (stamp) => {
+      if (!previousFrame.current) previousFrame.current = stamp;
+      const delta = Math.min(0.08, (stamp - previousFrame.current) / 1000);
+      previousFrame.current = stamp;
+      setSimTime(prev => {
+        const next = prev + delta * speedFactor;
+        if (next >= maxTime) { setPlaying(false); return maxTime; }
+        return next;
+      });
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf.current); previousFrame.current = 0; };
+  }, [playing, telemetry, speedFactor, maxTime]);
 
-    if (speedDivRef.current) {
-      const traceSpeed = {
-        x: telemetry.time_s,
-        y: telemetry.speed_kmh,
-        mode: 'lines',
-        line: { color: '#00e5ff', width: 2.2 },
-        name: 'Speed (km/h)'
-      }
-      const layout = {
-        ...PLOT_THEME,
-        title: { text: '<b>VELOCITY PROFILE (km/h)</b>', font: { size: 11, color: '#f0f6fc' } },
-        height: 200,
-        shapes: [{
-          type: 'line',
-          x0: simTime, x1: simTime,
-          y0: 0, y1: Math.max(...telemetry.speed_kmh) * 1.1,
-          line: { color: '#ffd600', width: 1.5, dash: 'dash' }
-        }]
-      }
-      window.Plotly.react(speedDivRef.current, [traceSpeed], layout, { responsive: true, displayModeBar: false })
+  const index = useMemo(() => {
+    if (!telemetry?.time_s?.length) return 0;
+    let lo = 0, hi = telemetry.time_s.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (telemetry.time_s[mid] < simTime) lo = mid + 1; else hi = mid;
     }
+    return lo;
+  }, [telemetry, simTime]);
+  const current = useMemo(() => {
+    if (!telemetry) return {};
+    return Object.fromEntries(Object.entries(telemetry).map(([key, arr]) => [key, arr[index]]));
+  }, [telemetry, index]);
+  const cursor = maxTime > 0 ? simTime / maxTime : 0;
 
-    if (powerDivRef.current) {
-      const tracePower = {
-        x: telemetry.time_s,
-        y: telemetry.motor_elec_power_kw,
-        mode: 'lines',
-        line: { color: '#00e676', width: 2 },
-        name: 'Motor Power (kW)'
-      }
-      const layout = {
-        ...PLOT_THEME,
-        title: { text: '<b>MOTOR ELECTRICAL POWER (kW)</b>', font: { size: 11, color: '#f0f6fc' } },
-        height: 200,
-        shapes: [{
-          type: 'line',
-          x0: simTime, x1: simTime,
-          y0: 0, y1: Math.max(...telemetry.motor_elec_power_kw) * 1.1,
-          line: { color: '#ffd600', width: 1.5, dash: 'dash' }
-        }]
-      }
-      window.Plotly.react(powerDivRef.current, [tracePower], layout, { responsive: true, displayModeBar: false })
-    }
-  }, [telemetry, simTime])
+  const runWith = (next) => {
+    setParams(next);
+    loadSimulation(next, track);
+  };
+  const handlePreset = (key) => {
+    setPreset(key);
+    runWith({ ...DEFAULTS, ...PRESETS[key].patch });
+  };
+  const updateParam = (key, value) => setParams(p => ({ ...p, [key]: value }));
+  const downloadCsv = () => {
+    if (!telemetry) return;
+    const keys = Object.keys(telemetry);
+    const rows = [keys.join(',')];
+    for (let i = 0; i < telemetry.time_s.length; i++) rows.push(keys.map(k => telemetry[k][i]).join(','));
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'helios-kari-lap-telemetry.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
 
-  // Render Tabbed Plots
-  useEffect(() => {
-    if (!window.Plotly || !telemetry) return
+  const activeChartData = activeTab === 'power'
+    ? [{ key: 'battery_soc_pct', title: 'BATTERY STATE OF CHARGE', unit: '%', color: '#70e1d0' }, { key: 'battery_current_a', title: 'PACK CURRENT', unit: 'A', color: '#f5bc66' }]
+    : activeTab === 'dynamics'
+    ? [{ key: 'accel_x_g', title: 'LONGITUDINAL ACCELERATION', unit: 'g', color: '#f5bc66' }, { key: 'accel_y_g', title: 'LATERAL ACCELERATION', unit: 'g', color: '#70a9f8' }]
+    : [{ key: 'energy_consumed_kwh', title: 'GROSS ENERGY CONSUMED', unit: 'kWh', color: '#f5bc66' }, { key: 'energy_regenerated_kwh', title: 'REGEN ENERGY RECOVERED', unit: 'kWh', color: '#70e1d0' }];
+  const maxOf = (key) => telemetry?.[key]?.length ? Math.max(...telemetry[key]) : 0;
 
-    if (activeTab === 'pwr') {
-      if (tabPlot1Ref.current) {
-        const traceSOC = {
-          x: telemetry.time_s,
-          y: telemetry.battery_soc_pct,
-          mode: 'lines',
-          line: { color: '#00e5ff', width: 2.2 },
-          name: 'SOC (%)'
-        }
-        window.Plotly.react(tabPlot1Ref.current, [traceSOC], { ...PLOT_THEME, title: { text: '<b>BATTERY STATE OF CHARGE (%)</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260 }, { responsive: true, displayModeBar: false })
-      }
-      if (tabPlot2Ref.current) {
-        const traceCurrent = {
-          x: telemetry.time_s,
-          y: telemetry.battery_current_a,
-          mode: 'lines',
-          line: { color: '#ff9100', width: 2 },
-          name: 'Current (A)'
-        }
-        window.Plotly.react(tabPlot2Ref.current, [traceCurrent], { ...PLOT_THEME, title: { text: '<b>PACK CURRENT (A) [+Disch, -Regen]</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260 }, { responsive: true, displayModeBar: false })
-      }
-    } else if (activeTab === 'dyn') {
-      if (tabPlot1Ref.current) {
-        const traceLat = { x: telemetry.time_s, y: telemetry.accel_y_g, mode: 'lines', line: { color: '#ff1744', width: 1.8 }, name: 'Lat Accel (g)' }
-        const traceLong = { x: telemetry.time_s, y: telemetry.accel_x_g, mode: 'lines', line: { color: '#00e5ff', width: 1.8 }, name: 'Long Accel (g)' }
-        window.Plotly.react(tabPlot1Ref.current, [traceLat, traceLong], { ...PLOT_THEME, title: { text: '<b>CHASSIS G-FORCES</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260 }, { responsive: true, displayModeBar: false })
-      }
-      if (tabPlot2Ref.current) {
-        const traceGG = {
-          x: telemetry.accel_y_g,
-          y: telemetry.accel_x_g,
-          mode: 'markers',
-          marker: { size: 4, color: telemetry.speed_kmh, colorscale: 'Plasma', opacity: 0.7 },
-          name: 'G-G Scatter'
-        }
-        const currGG = {
-          x: [snap.accel_y_g],
-          y: [snap.accel_x_g],
-          mode: 'markers',
-          marker: { size: 12, color: '#00e5ff', symbol: 'circle' },
-          name: 'Current'
-        }
-        window.Plotly.react(tabPlot2Ref.current, [traceGG, currGG], { ...PLOT_THEME, title: { text: '<b>FRICTION CIRCLE (G-G DIAGRAM)</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260, yaxis: { scaleanchor: 'x', scaleratio: 1, ...PLOT_THEME.yaxis } }, { responsive: true, displayModeBar: false })
-      }
-    } else if (activeTab === 'nrg') {
-      if (tabPlot1Ref.current) {
-        const traceGross = { x: telemetry.distance_m, y: telemetry.energy_consumed_kwh, mode: 'lines', line: { color: '#ff9100', width: 2 }, name: 'Gross Discharged (kWh)' }
-        const traceRegen = { x: telemetry.distance_m, y: telemetry.energy_regenerated_kwh, mode: 'lines', line: { color: '#00e676', width: 2 }, name: 'Regen Harvest (kWh)' }
-        const traceSolar = { x: telemetry.distance_m, y: telemetry.solar_energy_kwh, mode: 'lines', line: { color: '#ffd600', width: 2 }, name: 'Solar Harvest (kWh)' }
-        window.Plotly.react(tabPlot1Ref.current, [traceGross, traceRegen, traceSolar], { ...PLOT_THEME, title: { text: '<b>CUMULATIVE ENERGY BALANCES (kWh)</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260 }, { responsive: true, displayModeBar: false })
-      }
-      if (tabPlot2Ref.current) {
-        const traceNet = { x: telemetry.distance_m, y: telemetry.net_energy_kwh, mode: 'lines', line: { color: '#00e5ff', width: 2.2 }, name: 'Net Energy Draw (kWh)' }
-        window.Plotly.react(tabPlot2Ref.current, [traceNet], { ...PLOT_THEME, title: { text: '<b>NET BATTERY ENERGY CONSUMPTION (kWh)</b>', font: { size: 11, color: '#f0f6fc' } }, height: 260 }, { responsive: true, displayModeBar: false })
-      }
-    }
-  }, [activeTab, telemetry, snap.accel_x_g, snap.accel_y_g])
+  return <div className="app-shell">
+    <header className="topbar">
+      <div className="brand"><div className="brand-mark"><Zap size={20} fill="currentColor" /></div><div><div className="brand-name">HELIOS <span>ENGINEERING</span></div><div className="brand-sub">SOLAR EV · DIGITAL TWIN · KARI MOTOR SPEEDWAY</div></div></div>
+      <div className="topbar-right"><div className={`connection ${apiMode}`}><i />{apiMode === 'backend' ? 'CONNECTED TO API' : 'LOCAL PHYSICS ENGINE'}</div><button className="ghost-btn" onClick={() => setShowSetup(true)}><SlidersHorizontal size={15}/> VEHICLE SETUP</button><button className="primary-btn" onClick={() => runWith(params)} disabled={busy}><RotateCcw size={15}/> {busy ? 'SOLVING…' : 'RUN SIMULATION'}</button></div>
+    </header>
 
-  // Download full telemetry CSV
-  function downloadCSV() {
-    if (!telemetry) return
-    const keys = Object.keys(telemetry)
-    const rowCount = telemetry[keys[0]].length
-    let csv = keys.join(',') + '\n'
-    for (let i = 0; i < rowCount; i++) {
-      csv += keys.map(k => telemetry[k][i]).join(',') + '\n'
-    }
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'helios_kari_speedway_telemetry.csv'
-    a.click()
-  }
+    <main className="dashboard">
+      <section className="welcome-row">
+        <div><div className="overline"><span className="overline-line"/> SIMULATION CONTROL ROOM / 01</div><h1>Lap performance <i>analysis.</i></h1><p>Physics-led vehicle dynamics, energy flow and circuit telemetry — one lap at a time.</p></div>
+        <div className="session-chip"><span className="session-dot"/><div><b>{busy ? 'SOLVING VEHICLE MODEL' : 'SIMULATION READY'}</b><small>{track.length.toLocaleString()} track samples · 2 m resolution</small></div></div>
+      </section>
 
-  return (
-    <div className="min-h-screen bg-[#0a0d12] text-[#f0f6fc] flex flex-col">
-      {/* Top Motorsport Header */}
-      <header className="border-b border-[#222b3a] bg-[#121720] px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 rounded bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff]">
-            <Zap className="w-5 h-5" />
-          </div>
-          <div>
-            <h1 className="text-lg font-extrabold tracking-wider text-white flex items-center gap-2">
-              HELIOS <span className="text-xs text-[#00e5ff] font-semibold px-2 py-0.5 rounded bg-[#00e5ff]/15 border border-[#00e5ff]/30">DIGITAL TWIN</span>
-            </h1>
-            <p className="text-xs text-[#8b949e]">Kari Motor Speedway Lap Simulator // Coimbatore, India</p>
-          </div>
-        </div>
+      {error && <div className="notice"><CircleHelp size={16}/><span>{error}</span><button onClick={() => setError('')}>Dismiss</button></div>}
 
-        <div className="flex items-center space-x-3">
-          <span className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium border ${
-            apiConnected ? 'bg-[#00e676]/10 text-[#00e676] border-[#00e676]/30' : 'bg-[#ffd600]/10 text-[#ffd600] border-[#ffd600]/30'
-          }`}>
-            <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-[#00e676]' : 'bg-[#ffd600]'}`}></span>
-            {apiConnected ? 'FastAPI Online' : 'Static Mode'}
-          </span>
+      <section className="stat-grid">
+        <Stat label="LAP TIME" value={summary ? fmt(summary.lap_time_s,2) : '—'} unit="SEC" icon={Timer} tone="mint" detail={summary ? 'Simulated flying lap' : 'Awaiting solver'} />
+        <Stat label="TOP SPEED" value={summary ? fmt(summary.max_speed_kmh,1) : '—'} unit="KM/H" icon={Gauge} tone="blue" detail={`Current ${fmt(current.speed_kmh,1)} km/h`} />
+        <Stat label="NET ENERGY" value={summary ? fmt(summary.net_energy_kwh,3) : '—'} unit="KWH" icon={Bolt} tone="amber" detail={summary ? `${fmt(summary.efficiency_wh_km,1)} Wh/km` : 'Battery + solar + regen'} />
+        <Stat label="FINAL SOC" value={summary ? fmt(summary.final_soc_pct,1) : '—'} unit="%" icon={BatteryCharging} tone="violet" detail={summary ? `${fmt(summary.soc_delta_pct,2)}% over lap` : 'Pack state of charge'} />
+      </section>
 
-          <button
-            onClick={() => setShowConfig(!showConfig)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-[#1c2432] hover:bg-[#273244] border border-[#2e3b50] text-[#f0f6fc] transition"
-          >
-            <Sliders className="w-3.5 h-3.5 text-[#00e5ff]" />
-            Parameters
-          </button>
-
-          <button
-            onClick={downloadCSV}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-[#1c2432] hover:bg-[#273244] border border-[#2e3b50] text-[#f0f6fc] transition"
-          >
-            <Download className="w-3.5 h-3.5 text-[#00e676]" />
-            Export CSV
-          </button>
-        </div>
-      </header>
-
-      {/* Primary Live Telemetry HUD Bar */}
-      <div className="px-6 py-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Speed</div>
-          <div className="text-2xl font-bold mono text-[#00e5ff]">
-            {(snap.speed_kmh || 0).toFixed(1)} <span className="text-xs font-normal text-[#8b949e]">km/h</span>
-          </div>
-        </div>
-
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Motor RPM</div>
-          <div className="text-2xl font-bold mono text-[#ff9100]">
-            {(snap.motor_rpm || 0).toFixed(0)} <span className="text-xs font-normal text-[#8b949e]">RPM</span>
-          </div>
-        </div>
-
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Motor Power</div>
-          <div className="text-2xl font-bold mono text-[#00e676]">
-            {(snap.motor_elec_power_kw || 0).toFixed(2)} <span className="text-xs font-normal text-[#8b949e]">kW</span>
-          </div>
-        </div>
-
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Battery SOC</div>
-          <div className="text-2xl font-bold mono text-[#00e5ff]">
-            {(snap.battery_soc_pct || 0).toFixed(1)} <span className="text-xs font-normal text-[#8b949e]">%</span>
-          </div>
-        </div>
-
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Pack Current</div>
-          <div className="text-2xl font-bold mono text-[#d500f9]">
-            {(snap.battery_current_a || 0).toFixed(1)} <span className="text-xs font-normal text-[#8b949e]">A</span>
-          </div>
-        </div>
-
-        <div className="hud-card">
-          <div className="text-[10px] font-semibold text-[#8b949e] uppercase tracking-wider">Lateral Accel</div>
-          <div className="text-2xl font-bold mono text-[#ffd600]">
-            {(snap.accel_y_g || 0).toFixed(2)} <span className="text-xs font-normal text-[#8b949e]">g</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Visual Arena */}
-      <div className="flex-1 px-6 pb-6 grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Column: Track Map & Playback Controls */}
-        <div className="lg:col-span-7 flex flex-col space-y-3">
-          <div className="hud-card flex-1 flex flex-col p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[#f0f6fc]">CIRCUIT TRACKING</span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-[#1c2738] text-[#00e5ff] font-semibold">Sector {snap.sector || 1}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-[#8b949e]">Color metric:</span>
-                <select
-                  value={colorMetric}
-                  onChange={e => setColorMetric(e.target.value)}
-                  className="bg-[#0a0d12] border border-[#273142] text-xs text-[#f0f6fc] rounded px-2 py-1 outline-none"
-                >
-                  <option value="speed_kmh">Speed (km/h)</option>
-                  <option value="motor_elec_power_kw">Motor Power (kW)</option>
-                  <option value="accel_y_g">Lateral Accel (g)</option>
-                  <option value="sector">Circuit Sector (1-3)</option>
-                </select>
-              </div>
+      <section className="main-grid">
+        <TrackView track={track} telemetry={telemetry} index={index} colorMetric={colorMetric} onMetric={setColorMetric}/>
+        <aside className="right-column">
+          <section className="panel telemetry-panel">
+            <div className="panel-heading"><div><div className="eyebrow">LIVE VEHICLE TELEMETRY</div><h2>Car state <span className="tiny-pulse"/></h2></div><span className="small-code">T+{fmt(simTime,2)}s</span></div>
+            <div className="speed-readout"><div className="speed-number">{fmt(current.speed_kmh,1)}<small>km/h</small></div><div className="speed-arc"><span>VELOCITY</span><b>{fmt((current.speed_kmh || 0)/Math.max(summary?.max_speed_kmh || 1,1)*100,0)}%</b></div></div>
+            <div className="telemetry-list">
+              <div><span><Activity size={14}/> Motor speed</span><b>{fmt(current.motor_rpm,0)} <small>rpm</small></b></div>
+              <div><span><Bolt size={14}/> Motor electrical</span><b>{fmt(current.motor_elec_power_kw,2)} <small>kW</small></b></div>
+              <div><span><BatteryCharging size={14}/> Pack voltage</span><b>{fmt(current.battery_voltage_v,1)} <small>V</small></b></div>
+              <div><span><Waves size={14}/> Pack current</span><b>{fmt(current.battery_current_a,1)} <small>A</small></b></div>
+              <div><span><CarFront size={14}/> Lateral G</span><b>{fmt(current.accel_y_g,2)} <small>g</small></b></div>
+              <div><span><Sun size={14}/> Solar input</span><b>{fmt(current.solar_power_w,0)} <small>W</small></b></div>
             </div>
-
-            <div ref={trackDivRef} className="w-full flex-1 rounded bg-[#0a0d12] overflow-hidden" />
-
-            {/* Playback Control Bar */}
-            <div className="mt-3 pt-3 border-t border-[#222b3a] flex flex-col space-y-2">
-              <div className="flex items-center justify-between text-xs text-[#8b949e]">
-                <span>Lap Time: <b className="text-white mono">{simTime.toFixed(2)}s</b> / {maxLapTime.toFixed(2)}s</span>
-                <span>Distance: <b className="text-white mono">{(snap.distance_m || 0).toFixed(0)}m</b> / 2120m</span>
-              </div>
-
-              <input
-                type="range"
-                min="0"
-                max={maxLapTime}
-                step="0.1"
-                value={simTime}
-                onChange={e => {
-                  setSimTime(parseFloat(e.target.value))
-                  setIsPlaying(false)
-                }}
-                className="slider-custom"
-              />
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setIsPlaying(!isPlaying)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#00e5ff] text-[#0a0d12] font-bold text-xs hover:bg-[#33ebff] transition"
-                  >
-                    {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                    {isPlaying ? 'Pause' : 'Play'}
-                  </button>
-
-                  <button
-                    onClick={() => { setSimTime(0); setIsPlaying(false); }}
-                    className="p-1.5 rounded bg-[#1c2432] text-[#8b949e] hover:text-white border border-[#273142] transition"
-                    title="Reset to Start"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="flex items-center space-x-1 text-xs">
-                  <span className="text-[#8b949e] mr-1">Speed:</span>
-                  {[0.5, 1, 2, 5].map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setPlaybackSpeed(s)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${playbackSpeed === s ? 'bg-[#00e5ff] text-[#0a0d12]' : 'bg-[#1c2432] text-[#8b949e] hover:text-white'}`}
-                    >
-                      {s}x
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="energy-bars">
+              <div className="energy-bar-head"><span>BATTERY SOC</span><b>{fmt(current.battery_soc_pct,1)}%</b></div>
+              <div className="bar-track"><i style={{ width: `${clamp(current.battery_soc_pct || 0,0,100)}%` }}/></div>
+              <div className="energy-bar-head"><span>MOTOR LOAD</span><b>{fmt((current.motor_elec_power_kw || 0)/Math.max(params.motor_peak_power_kw,1)*100,0)}%</b></div>
+              <div className="bar-track gold"><i style={{ width: `${clamp((current.motor_elec_power_kw || 0)/Math.max(params.motor_peak_power_kw,1)*100,0,100)}%` }}/></div>
             </div>
-          </div>
+          </section>
+          <section className="panel lap-control">
+            <div className="panel-heading"><div><div className="eyebrow">LAP PLAYBACK</div><h2>Replay controls</h2></div><span className="small-code">{fmt(maxTime,2)} SEC</span></div>
+            <div className="playback-buttons"><button className="play-main" onClick={() => { if (simTime >= maxTime) setSimTime(0); setPlaying(v => !v); }} disabled={!telemetry || busy}>{playing ? <Pause size={17} fill="currentColor"/> : <Play size={17} fill="currentColor"/>}{playing ? 'PAUSE' : 'PLAY LAP'}</button><button className="icon-button" onClick={() => {setPlaying(false);setSimTime(0);}} title="Restart lap"><RotateCcw size={17}/></button></div>
+            <input className="time-slider" type="range" min="0" max={Math.max(maxTime,0.1)} step="0.02" value={Math.min(simTime,maxTime || 0)} onChange={e => {setPlaying(false);setSimTime(Number(e.target.value));}}/>
+            <div className="time-labels"><span>00:00.00</span><b>{fmt(simTime,2)}s</b><span>{fmt(maxTime,2)}s</span></div>
+            <div className="speed-controls"><span>PLAYBACK RATE</span>{[0.5,1,2,4].map(s=><button key={s} className={speedFactor===s?'selected':''} onClick={()=>setSpeedFactor(s)}>{s}×</button>)}</div>
+          </section>
+        </aside>
+      </section>
+
+      <section className="analysis-section">
+        <div className="analysis-title"><div><div className="eyebrow">ENGINEERING TELEMETRY / 02</div><h2>Data acquisition</h2></div><div className="chart-caption">Cursor follows lap playback · Hover-free live values</div></div>
+        <div className="chart-grid">
+          <MiniChart title="VELOCITY PROFILE" data={telemetry?.speed_kmh} color="#70e1d0" unit="km/h" cursor={cursor} fill/>
+          <MiniChart title="MOTOR ELECTRICAL POWER" data={telemetry?.motor_elec_power_kw} color="#f5bc66" unit="kW" cursor={cursor} fill/>
         </div>
-
-        {/* Right Column: Key Traces & Multi-Channel Tabs */}
-        <div className="lg:col-span-5 flex flex-col space-y-3">
-          <div className="hud-card p-3">
-            <div ref={speedDivRef} className="w-full h-[200px]" />
-          </div>
-
-          <div className="hud-card p-3">
-            <div ref={powerDivRef} className="w-full h-[200px]" />
-          </div>
+        <div className="data-tabs">{[{id:'power',label:'BATTERY & POWERTRAIN'},{id:'dynamics',label:'VEHICLE DYNAMICS'},{id:'energy',label:'ENERGY BALANCE'}].map(t=><button key={t.id} onClick={()=>setActiveTab(t.id)} className={activeTab===t.id?'active':''}>{t.label}</button>)}<button className="export-inline" onClick={downloadCsv} disabled={!telemetry}><Download size={14}/> EXPORT CSV</button></div>
+        <div className="chart-grid lower">
+          {activeChartData.map(c=><MiniChart key={c.key} title={c.title} data={telemetry?.[c.key]} unit={c.unit} color={c.color} cursor={cursor}/>)}
         </div>
-      </div>
+      </section>
 
-      {/* Multi-Channel Telemetry Tabs */}
-      <div className="px-6 pb-6">
-        <div className="hud-card p-4">
-          <div className="flex items-center border-b border-[#222b3a] pb-3 mb-4 space-x-2 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('pwr')}
-              className={`tab-btn ${activeTab === 'pwr' ? 'active' : ''}`}
-            >
-              🔋 Battery & Powertrain
-            </button>
-            <button
-              onClick={() => setActiveTab('dyn')}
-              className={`tab-btn ${activeTab === 'dyn' ? 'active' : ''}`}
-            >
-              🏎️ Dynamics & Friction Circle
-            </button>
-            <button
-              onClick={() => setActiveTab('nrg')}
-              className={`tab-btn ${activeTab === 'nrg' ? 'active' : ''}`}
-            >
-              ☀️ Energy & Balances
-            </button>
-            <button
-              onClick={() => setActiveTab('sum')}
-              className={`tab-btn ${activeTab === 'sum' ? 'active' : ''}`}
-            >
-              🏁 Lap Performance Summary
-            </button>
-          </div>
+      <section className="bottom-grid">
+        <section className="panel summary-panel"><div className="panel-heading"><div><div className="eyebrow">SECTOR TIMING</div><h2>Lap split analysis</h2></div><span className="small-code">3 SECTORS</span></div>
+          {[{name:'SECTOR 01',time:summary?.sector_1_s},{name:'SECTOR 02',time:summary?.sector_2_s},{name:'SECTOR 03',time:summary?.sector_3_s}].map((s,i)=><div className="sector-row" key={s.name}><span className="sector-index">0{i+1}</span><span>{s.name}</span><div className="sector-trackbar"><i style={{width:`${(s.time || 0)/Math.max(summary?.lap_time_s || 1,1)*100}%`}}/></div><b>{fmt(s.time,2)}<small> s</small></b></div>)}
+        </section>
+        <section className="panel summary-panel"><div className="panel-heading"><div><div className="eyebrow">ENERGY ACCOUNTING</div><h2>Lap energy balance</h2></div><Sun size={18} color="#f5bc66"/></div>
+          <div className="balance-row"><span>Gross battery discharge</span><b>{fmt(summary?.energy_consumed_kwh,3)} kWh</b></div>
+          <div className="balance-row"><span>Regenerative recovery</span><b className="positive">−{fmt(summary?.energy_regenerated_kwh,3)} kWh</b></div>
+          <div className="balance-row"><span>Solar energy harvested</span><b className="positive">−{fmt(summary?.solar_energy_harvested_kwh,3)} kWh</b></div>
+          <div className="balance-total"><span>NET BATTERY ENERGY</span><strong>{fmt(summary?.net_energy_kwh,3)} <small>kWh</small></strong></div>
+        </section>
+        <section className="panel summary-panel"><div className="panel-heading"><div><div className="eyebrow">MODEL CONFIGURATION</div><h2>Vehicle parameters</h2></div><button className="text-link" onClick={()=>setShowSetup(true)}>EDIT <Settings2 size={13}/></button></div>
+          <div className="config-summary"><div><span>Mass</span><b>{fmt(params.vehicle_mass,0)} kg</b></div><div><span>Peak power</span><b>{fmt(params.motor_peak_power_kw,1)} kW</b></div><div><span>Grip coefficient</span><b>μ {fmt(params.friction_coefficient,2)}</b></div><div><span>Solar input</span><b>{fmt(params.solar_irradiance_wm2,0)} W/m²</b></div></div>
+        </section>
+      </section>
 
-          {activeTab !== 'sum' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div ref={tabPlot1Ref} className="w-full h-[260px] bg-[#0a0d12] rounded p-2" />
-              <div ref={tabPlot2Ref} className="w-full h-[260px] bg-[#0a0d12] rounded p-2" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-              <div className="card p-4 bg-[#0a0d12] rounded border border-[#273142]">
-                <h4 className="font-bold text-[#00e5ff] mb-2 uppercase tracking-wider">Lap Timing</h4>
-                <div className="space-y-1.5 text-[#8b949e]">
-                  <p>Total Lap Time: <b className="text-white font-mono">{summary ? summary.lap_time_s.toFixed(2) : '73.93'}s</b></p>
-                  <p>Sector 1: <b className="text-white font-mono">{summary ? summary.sector_1_s.toFixed(2) : '23.81'}s</b></p>
-                  <p>Sector 2: <b className="text-white font-mono">{summary ? summary.sector_2_s.toFixed(2) : '28.95'}s</b></p>
-                  <p>Sector 3: <b className="text-white font-mono">{summary ? summary.sector_3_s.toFixed(2) : '21.16'}s</b></p>
-                  <p>Average Speed: <b className="text-white font-mono">{summary ? summary.avg_speed_kmh.toFixed(1) : '103.1'} km/h</b></p>
-                </div>
-              </div>
+      <footer className="footer"><div>HELIOS <span>ENGINEERING SIMULATION</span></div><p>Track geometry is an analytical reconstruction. Vehicle parameters are configurable engineering assumptions, not measured vehicle data.</p><span>MODEL BUILD 1.1 · {apiMode==='backend'?'API':'BROWSER SOLVER'}</span></footer>
+    </main>
 
-              <div className="card p-4 bg-[#0a0d12] rounded border border-[#273142]">
-                <h4 className="font-bold text-[#00e676] mb-2 uppercase tracking-wider">Kinematic Limits</h4>
-                <div className="space-y-1.5 text-[#8b949e]">
-                  <p>Top Speed: <b className="text-white font-mono">{summary ? summary.max_speed_kmh.toFixed(1) : '129.2'} km/h</b></p>
-                  <p>Min Apex Speed: <b className="text-white font-mono">{summary ? summary.min_speed_kmh.toFixed(1) : '51.4'} km/h</b></p>
-                  <p>Max Long Accel: <b className="text-white font-mono">{summary ? summary.max_long_accel_mps2.toFixed(2) : '2.31'} m/s²</b></p>
-                  <p>Max Braking Decel: <b className="text-white font-mono">{summary ? summary.max_braking_decel_mps2.toFixed(2) : '11.47'} m/s²</b></p>
-                  <p>Peak Lateral G: <b className="text-white font-mono">{summary ? summary.max_lat_accel_g.toFixed(2) : '1.13'} g</b></p>
-                </div>
-              </div>
-
-              <div className="card p-4 bg-[#0a0d12] rounded border border-[#273142]">
-                <h4 className="font-bold text-[#ffd600] mb-2 uppercase tracking-wider">Energy & Efficiency</h4>
-                <div className="space-y-1.5 text-[#8b949e]">
-                  <p>Gross Energy Consumed: <b className="text-white font-mono">{summary ? summary.energy_consumed_kwh.toFixed(3) : '0.224'} kWh</b></p>
-                  <p>Regenerated Harvest: <b className="text-white font-mono">{summary ? summary.energy_regenerated_kwh.toFixed(3) : '0.016'} kWh</b></p>
-                  <p>Solar PV Gain: <b className="text-white font-mono">{summary ? summary.solar_energy_harvested_kwh.toFixed(3) : '0.015'} kWh</b></p>
-                  <p>Net Energy Draw: <b className="text-white font-mono">{summary ? summary.net_energy_kwh.toFixed(3) : '0.208'} kWh</b></p>
-                  <p>Efficiency: <b className="text-white font-mono">{summary ? summary.efficiency_wh_km.toFixed(1) : '98.3'} Wh/km</b></p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Slide-out Parameter Tuning Panel */}
-      {showConfig && (
-        <div className="fixed inset-y-0 right-0 w-80 bg-[#121720] border-l border-[#273142] p-5 shadow-2xl z-50 flex flex-col overflow-y-auto">
-          <div className="flex items-center justify-between pb-3 border-b border-[#222b3a] mb-4">
-            <h3 className="font-bold text-sm text-[#00e5ff] flex items-center gap-1.5">
-              <Sliders className="w-4 h-4" />
-              VEHICLE PARAMETERS
-            </h3>
-            <button onClick={() => setShowConfig(false)} className="text-[#8b949e] hover:text-white text-xs">✕ Close</button>
-          </div>
-
-          <div className="space-y-4 flex-1 text-xs">
-            <div>
-              <label className="text-[#8b949e] block mb-1">Total Mass (kg): <b className="text-white">{params.vehicle_mass}</b></label>
-              <input type="range" min="200" max="450" step="5" value={params.vehicle_mass} onChange={e => setParams({...params, vehicle_mass: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-
-            <div>
-              <label className="text-[#8b949e] block mb-1">Drag Coeff (Cd): <b className="text-white">{params.drag_coefficient}</b></label>
-              <input type="range" min="0.12" max="0.35" step="0.01" value={params.drag_coefficient} onChange={e => setParams({...params, drag_coefficient: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-
-            <div>
-              <label className="text-[#8b949e] block mb-1">Motor Peak Power (kW): <b className="text-white">{params.motor_peak_power_kw}</b></label>
-              <input type="range" min="5" max="25" step="0.5" value={params.motor_peak_power_kw} onChange={e => setParams({...params, motor_peak_power_kw: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-
-            <div>
-              <label className="text-[#8b949e] block mb-1">Motor Peak Torque (Nm): <b className="text-white">{params.motor_peak_torque_nm}</b></label>
-              <input type="range" min="30" max="130" step="5" value={params.motor_peak_torque_nm} onChange={e => setParams({...params, motor_peak_torque_nm: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-
-            <div>
-              <label className="text-[#8b949e] block mb-1">Tyre Grip (μ): <b className="text-white">{params.friction_coefficient}</b></label>
-              <input type="range" min="0.8" max="1.4" step="0.05" value={params.friction_coefficient} onChange={e => setParams({...params, friction_coefficient: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-
-            <div>
-              <label className="text-[#8b949e] block mb-1">Solar Irradiance (W/m²): <b className="text-white">{params.solar_irradiance_wm2}</b></label>
-              <input type="range" min="0" max="1100" step="50" value={params.solar_irradiance_wm2} onChange={e => setParams({...params, solar_irradiance_wm2: parseFloat(e.target.value)})} className="slider-custom" />
-            </div>
-          </div>
-
-          <button
-            onClick={handleRecompute}
-            disabled={recomputing}
-            className="w-full mt-4 py-2 px-3 rounded bg-[#00e5ff] text-[#0a0d12] font-bold text-xs hover:bg-[#33ebff] transition flex items-center justify-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${recomputing ? 'animate-spin' : ''}`} />
-            {recomputing ? 'Simulating Lap...' : 'Recalculate Physics'}
-          </button>
-        </div>
-      )}
-    </div>
-  )
+    {showSetup && <div className="drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setShowSetup(false);}}>
+      <aside className="setup-drawer">
+        <div className="drawer-head"><div><div className="eyebrow">SIMULATION INPUTS</div><h2>Vehicle setup</h2><p>Adjust physical parameters and solve a new lap.</p></div><button className="icon-button" onClick={()=>setShowSetup(false)}>×</button></div>
+        <div className="preset-block"><label>QUICK SETUP</label><div className="preset-grid">{Object.entries(PRESETS).map(([key,p])=><button key={key} className={preset===key?'selected':''} onClick={()=>{setPreset(key);setParams({...DEFAULTS,...p.patch});}}>{p.label}</button>)}</div></div>
+        <div className="parameter-list">{PARAMS.map(p=><div className="parameter" key={p.key}><div className="parameter-label"><label htmlFor={p.key}>{p.label}</label><b>{params[p.key]} <small>{p.unit}</small></b></div><input id={p.key} type="range" min={p.min} max={p.max} step={p.step} value={params[p.key]} onChange={e=>{updateParam(p.key,Number(e.target.value));setPreset('custom');}}/></div>)}</div>
+        <div className="drawer-actions"><button className="ghost-btn" onClick={()=>{setParams(DEFAULTS);setPreset('baseline');}}>RESET DEFAULTS</button><button className="primary-btn" disabled={busy} onClick={()=>{setShowSetup(false);loadSimulation(params,track);}}><Play size={15}/> {busy?'SOLVING…':'APPLY & RUN'}</button></div>
+      </aside>
+    </div>}
+  </div>;
 }
-
