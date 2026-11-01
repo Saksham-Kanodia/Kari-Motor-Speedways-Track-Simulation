@@ -1,9 +1,10 @@
-# Ignore heavy files from serverless function bundles
+# Exclude dependencies and local development artifacts
 frontend/node_modules/
-frontend/src/
 tests/
-results/*.png
+results/
 __pycache__/
+**/__pycache__/
 *.pyc
+**/*.pyc
+requirements-local.txt
 *.md
-
