@@ -1,0 +1,9 @@
+# Ignore heavy files from serverless function bundles
+frontend/node_modules/
+frontend/src/
+tests/
+results/*.png
+__pycache__/
+*.pyc
+*.md
+

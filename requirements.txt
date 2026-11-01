@@ -1,10 +1,5 @@
-# HELIOS — Physics-Based Solar EV Digital Twin & Kari Motor Speedway Simulator
-numpy>=1.24.0
-scipy>=1.10.0
-pandas>=2.0.0
-plotly>=5.15.0
-streamlit>=1.30.0
-matplotlib>=3.7.0
+# Lean production dependencies for Vercel Serverless Functions
 fastapi>=0.100.0
 pydantic>=2.0.0
-uvicorn>=0.23.0
+numpy>=1.24.0
+pandas>=2.0.0

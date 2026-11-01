@@ -8,7 +8,6 @@ import os
 from typing import Tuple, List, Dict
 import numpy as np
 import pandas as pd
-from scipy.interpolate import splprep, splev
 
 
 class KariTrack:
@@ -78,6 +77,12 @@ class KariTrack:
         os.makedirs(self.data_dir, exist_ok=True)
         csv_path = os.path.join(self.data_dir, "track_data.csv")
 
+        # Load precomputed CSV if present (fast and zero scipy dependency)
+        if os.path.exists(csv_path):
+            self.track_df = pd.read_csv(csv_path)
+            return
+
+        from scipy.interpolate import splprep, splev
         raw_points = self._get_kari_waypoints()
 
         # Calibrate waypoints so total spline perimeter matches Kari Motor Speedway official length (~2,120 m)
