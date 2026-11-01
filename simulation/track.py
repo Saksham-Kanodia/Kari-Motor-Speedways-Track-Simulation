@@ -13,7 +13,7 @@ import pandas as pd
 class KariTrack:
     """
     Parametric model of Kari Motor Speedway circuit.
-    Track Length: ~2,120 meters | Turns: 14 | Direction: Anti-clockwise
+    Track Length: ~2,120 meters | Turns: 14 | Direction: Clockwise
     """
     def __init__(self, resolution_m: float = 2.0, data_dir: str = "data"):
         self.resolution_m = resolution_m
@@ -24,53 +24,100 @@ class KariTrack:
 
     def _get_kari_waypoints(self) -> np.ndarray:
         """
-        Geometrically verified waypoint approximation for Kari Motor Speedway.
-        Anti-clockwise configuration:
-        - Main straight running west-to-east
-        - T1-T2 fast left-right sweeper
-        - T3-T4 complex leading into infield
-        - T5 tight hairpin (slowest section)
-        - T6-T7 chicane
-        - T8-T10 technical infield bends
-        - T11-T12 back straight sweepers
-        - T13-T14 parabolic final curve returning to start/finish
+        Centreline reconstruction traced from the supplied Kari Motor Speedway map.
+        The map depicts the older ~2.1 km layout. Coordinates are schematic pixels,
+        converted to a north-up Cartesian plane before metric calibration.
+        Direction: clockwise from the main-straight start/finish point.
         """
-        waypoints = np.array([
-            # [X (m), Y (m), Turn_ID, Turn_Name]
-            [0.0, 0.0],         # Start / Finish line
-            [120.0, 5.0],       # Main straight progression
-            [260.0, 10.0],      # Main straight braking zone
-            [370.0, 20.0],      # Approach to T1
-            [430.0, 50.0],      # T1 (Fast Left)
-            [465.0, 100.0],     # T2 (Sweeping Right)
-            [460.0, 160.0],     # Exit T2
-            [430.0, 215.0],     # T3 (Left kink)
-            [385.0, 260.0],     # T4 (Left bend towards hairpin)
-            [325.0, 290.0],     # Approach to T5 Hairpin
-            [265.0, 310.0],     # T5 Hairpin Entry
-            [235.0, 305.0],     # T5 Hairpin Apex (Tight R=22m)
-            [230.0, 275.0],     # T5 Hairpin Exit
-            [250.0, 220.0],     # Short straight
-            [265.0, 165.0],     # Approach T6 Chicane
-            [250.0, 135.0],     # T6 Chicane Left
-            [230.0, 120.0],     # T7 Chicane Right
-            [180.0, 115.0],     # Short burst
-            [130.0, 130.0],     # T8 (Infield Left)
-            [85.0, 165.0],      # T9 (Infield Left)
-            [60.0, 220.0],      # Infield link
-            [40.0, 275.0],      # T10 (Right kink)
-            [10.0, 310.0],      # T11 (Back sweeper left)
-            [-40.0, 320.0],     # Back straight section
-            [-100.0, 305.0],    # Approach T12
-            [-155.0, 260.0],    # T12 (Left Sweeper)
-            [-185.0, 200.0],    # Infield exit
-            [-200.0, 140.0],    # T13 (Entry to Parabolic Curve)
-            [-190.0, 70.0],     # T14 Parabolic Apex (Right long sweep)
-            [-140.0, 20.0],     # T14 Exit
-            [-70.0, 5.0],       # Final acceleration towards Start/Finish
-            [0.0, 0.0]          # Closed circuit return
-        ])
-        return waypoints
+        image_waypoints = np.array([
+            [152.0, 52.0],
+            [190.0, 49.0],
+            [230.0, 47.0],
+            [252.0, 46.0],
+            [263.0, 49.0],
+            [268.0, 57.0],
+            [268.0, 70.0],
+            [264.0, 83.0],
+            [266.0, 90.0],
+            [273.0, 93.0],
+            [280.0, 90.0],
+            [283.0, 83.0],
+            [280.0, 68.0],
+            [275.0, 52.0],
+            [269.0, 37.0],
+            [263.0, 22.0],
+            [258.0, 15.0],
+            [252.0, 12.0],
+            [246.0, 13.0],
+            [241.0, 18.0],
+            [241.0, 25.0],
+            [232.0, 27.0],
+            [216.0, 27.0],
+            [201.0, 25.0],
+            [185.0, 25.0],
+            [174.0, 27.0],
+            [168.0, 31.0],
+            [166.0, 39.0],
+            [167.0, 48.0],
+            [170.0, 51.0],
+            [158.0, 52.0],
+            [152.0, 51.0],
+            [147.0, 48.0],
+            [144.0, 43.0],
+            [146.0, 37.0],
+            [152.0, 33.0],
+            [158.0, 30.0],
+            [160.0, 26.0],
+            [154.0, 24.0],
+            [144.0, 25.0],
+            [135.0, 29.0],
+            [132.0, 36.0],
+            [132.0, 45.0],
+            [130.0, 51.0],
+            [119.0, 52.0],
+            [106.0, 53.0],
+            [95.0, 53.0],
+            [91.0, 49.0],
+            [88.0, 43.0],
+            [83.0, 40.0],
+            [78.0, 41.0],
+            [73.0, 43.0],
+            [58.0, 45.0],
+            [43.0, 47.0],
+            [31.0, 49.0],
+            [27.0, 46.0],
+            [24.0, 42.0],
+            [19.0, 40.0],
+            [15.0, 43.0],
+            [13.0, 50.0],
+            [14.0, 57.0],
+            [18.0, 60.0],
+            [30.0, 60.0],
+            [46.0, 59.0],
+            [56.0, 58.0],
+            [59.0, 61.0],
+            [61.0, 65.0],
+            [70.0, 65.0],
+            [82.0, 65.0],
+            [89.0, 62.0],
+            [94.0, 57.0],
+            [105.0, 56.0],
+            [120.0, 54.0],
+            [137.0, 53.0],
+        ], dtype=float)
+
+        # Light cyclic smoothing removes raster/waypoint noise without erasing chicanes.
+        for _ in range(2):
+            image_waypoints = np.array([
+                0.1 * image_waypoints[(i - 2) % len(image_waypoints)]
+                + 0.2 * image_waypoints[(i - 1) % len(image_waypoints)]
+                + 0.4 * image_waypoints[i]
+                + 0.2 * image_waypoints[(i + 1) % len(image_waypoints)]
+                + 0.1 * image_waypoints[(i + 2) % len(image_waypoints)]
+                for i in range(len(image_waypoints))
+            ])
+
+        return np.column_stack((image_waypoints[:, 0], -image_waypoints[:, 1]))
 
     def _build_or_load_track(self):
         """Constructs parametric spline track model and saves/loads CSV data."""
@@ -90,7 +137,7 @@ class KariTrack:
         target_circuit_length = 2120.0
 
         # Fit initial spline
-        tck_raw, _ = splprep([raw_points[:, 0], raw_points[:, 1]], s=250.0, per=True, k=3)
+        tck_raw, _ = splprep([raw_points[:, 0], raw_points[:, 1]], s=8.0, per=True, k=3)
         u_probe = np.linspace(0.0, 1.0, 1000)
         x_probe, y_probe = splev(u_probe, tck_raw)
         raw_len = np.sum(np.sqrt(np.diff(x_probe)**2 + np.diff(y_probe)**2))
@@ -99,7 +146,7 @@ class KariTrack:
         scaled_points = raw_points * scale
 
         # Fit periodic parametric spline (per=True for closed circuit)
-        tck, u = splprep([scaled_points[:, 0], scaled_points[:, 1]], s=300.0, per=True, k=3)
+        tck, u = splprep([scaled_points[:, 0], scaled_points[:, 1]], s=30.0, per=True, k=3)
 
         # High resolution sampling
         u_fine = np.linspace(0.0, 1.0, 1500)
